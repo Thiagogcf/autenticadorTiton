@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Login Seguro</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f3f4f6;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+            padding: 2rem;
+        }
+
+        .card-header {
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .card-title {
+            font-size: 1.5rem;
+            color: #1f2937;
+            margin-bottom: 0.5rem;
+        }
+
+        .card-description {
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #374151;
+            font-size: 0.875rem;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #2563eb;
+            ring: 2px solid #2563eb;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background-color: #1d4ed8;
+        }
+
+        .btn:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .alert {
+            padding: 0.75rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            background-color: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fee2e2;
+        }
+
+        .success {
+            text-align: center;
+            color: #059669;
+        }
+
+        .success-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .step {
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+        }
+
+        .timer {
+            text-align: center;
+            margin-bottom: 1rem;
+            color: #4b5563;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-header">
+            <h1 class="card-title">Sistema de Login Seguro</h1>
+            <p class="card-description" id="step-description">Entre com suas credenciais</p>
+        </div>
+
+        <div id="error-message" class="alert" style="display: none;"></div>
+
+        <div id="timer" class="timer" style="display: none;"></div>
+
+        <div id="login-step" class="step active">
+            <div class="form-group">
+                <label class="form-label" for="email">Email</label>
+                <input type="email" id="email" class="form-input" placeholder="usuario@exemplo.com">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="password">Senha</label>
+                <input type="password" id="password" class="form-input" placeholder="********">
+            </div>
+            <button id="login-button" class="btn" onclick="fazerLogin()">Entrar</button>
+        </div>
+
+        <div id="2fa-step" class="step">
+            <div class="form-group">
+                <p class="card-description">Um código de verificação foi enviado para seu email.</p>
+                <p class="card-description">Verifique no console do backend.</p>
+                <label class="form-label" for="code">Código de Verificação</label>
+                <input type="text" id="code" class="form-input" placeholder="000000" maxlength="6">
+            </div>
+            <button id="verify-button" class="btn" onclick="verificarCodigo()">Verificar</button>
+        </div>
+        <div id="success-step" class="step">
+            <div class="success">
+                <div class="success-icon">✓</div>
+                <h2>Login realizado com sucesso!</h2>
+                <p>Você será redirecionado em instantes...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://127.0.0.1:5000/api';
+        let emailAtual = '';
+        let timerInterval = null;
+
+        function mostrarErro(mensagem) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = mensagem;
+            errorDiv.style.display = 'block';
+        }
+
+        function esconderErro() {
+            document.getElementById('error-message').style.display = 'none';
+        }
+
+        function iniciarTimer() {
+            let tempoRestante = 120; // 2 minutos
+            const timerDiv = document.getElementById('timer');
+            timerDiv.style.display = 'block';
+
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                const minutos = Math.floor(tempoRestante / 60);
+                const segundos = tempoRestante % 60;
+                timerDiv.textContent = `Tempo restante: ${minutos}:${segundos.toString().padStart(2, '0')}`;
+
+                if (tempoRestante <= 0) {
+                    clearInterval(timerInterval);
+                    timerDiv.textContent = 'Código expirado. Faça login novamente.';
+                    setTimeout(() => mudarEtapa('login'), 2000);
+                }
+                tempoRestante--;
+            }, 1000);
+        }
+
+        function mudarEtapa(etapa) {
+
+            document.querySelectorAll('.step').forEach(step => {
+                step.classList.remove('active');
+            });
+
+            const etapaAtual = document.getElementById(`${etapa}-step`);
+            if (etapaAtual) {
+                etapaAtual.classList.add('active');
+            }
+            const descriptionMap = {
+                'login': 'Entre com suas credenciais',
+                '2fa': 'Digite o código de verificação',
+                'success': 'Login realizado com sucesso!'
+            };
+            document.getElementById('step-description').textContent = descriptionMap[etapa];
+
+            const timerDiv = document.getElementById('timer');
+            if (etapa === '2fa') {
+                iniciarTimer();
+            } else {
+                clearInterval(timerInterval);
+                timerDiv.style.display = 'none';
+            }
+        }
+
+        async function fazerLogin() {
+            try {
+                esconderErro();
+                const email = document.getElementById('email').value;
+                const senha = document.getElementById('password').value;
+
+                if (!email || !senha) {
+                    throw new Error('Por favor, preencha todos os campos');
+                }
+
+                const loginButton = document.getElementById('login-button');
+                loginButton.disabled = true;
+                loginButton.textContent = 'Aguarde...';
+
+                const response = await fetch(`${API_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, senha })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.erro);
+                }
+
+                emailAtual = email;
+                mudarEtapa('2fa');
+            } catch (error) {
+                mostrarErro(error.message);
+            } finally {
+                const loginButton = document.getElementById('login-button');
+                loginButton.disabled = false;
+                loginButton.textContent = 'Entrar';
+            }
+        }
+
+        async function verificarCodigo() {
+            try {
+                esconderErro();
+                const codigo = document.getElementById('code').value;
+
+                if (!codigo) {
+                    throw new Error('Por favor, insira o código de verificação');
+                }
+
+                const verifyButton = document.getElementById('verify-button');
+                verifyButton.disabled = true;
+                verifyButton.textContent = 'Verificando...';
+
+                const response = await fetch(`${API_URL}/verificar-2fa`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: emailAtual, codigo })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.erro);
+                }
+
+                clearInterval(timerInterval);
+                mudarEtapa('success');
+            } catch (error) {
+                mostrarErro(error.message);
+            } finally {
+                const verifyButton = document.getElementById('verify-button');
+                verifyButton.disabled = false;
+                verifyButton.textContent = 'Verificar';
+            }
+        }
+
+        // Listeners para tecla Enter
+        document.getElementById('password').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') fazerLogin();
+        });
+
+        document.getElementById('code').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') verificarCodigo();
+        });
+    </script>
+</body>
+</html>
