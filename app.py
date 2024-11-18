@@ -1,12 +1,16 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect, url_for, session
 from flask_cors import CORS
 import json
 import hashlib
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+from google.oauth2 import id_token
+from google_auth_oauthlib.flow import Flow
+import google.auth.transport.requests
 
 app = Flask(__name__)
+app.secret_key = 'your_secret_key'
 CORS(app)
 
 USERS_FILE = 'users.json'
@@ -21,6 +25,17 @@ BLOCK_TIMES = {
     4: 3600,  
     5: 86400  
 }
+
+GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID"  # Change this with your Google API client ID
+GOOGLE_CLIENT_SECRET = "YOUR_GOOGLE_CLIENT_SECRET"  # Change this with your Google API client secret
+GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
+GOOGLE_REDIRECT_URI = "http://127.0.0.1:5000/api/login/google/callback"
+
+flow = Flow.from_client_secrets_file(
+    'client_secret.json',
+    scopes=['https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+    redirect_uri=GOOGLE_REDIRECT_URI
+)
 
 
 def init_storage():
@@ -232,6 +247,10 @@ def verify_2fa():
         save_data(codes, CODES_FILE)
         reset_attempts(ip)
 
+        session['email'] = email
+        session['logged_in'] = True
+        session['last_activity'] = datetime.now().timestamp()
+
         return jsonify({
             'mensagem': 'Login realizado com sucesso',
             'token': 'jwt-token-simulado'
@@ -240,6 +259,67 @@ def verify_2fa():
     except Exception as e:
         print(f"Erro na verificação 2FA: {str(e)}")
         return jsonify({'erro': 'Erro interno do servidor'}), 500
+
+
+@app.route('/api/login/google', methods=['GET'])
+def login_google():
+    authorization_url, state = flow.authorization_url()
+    return jsonify({'url': authorization_url})
+
+
+@app.route('/api/login/google/callback', methods=['GET'])
+def login_google_callback():
+    flow.fetch_token(authorization_response=request.url)
+
+    if not flow.credentials:
+        return jsonify({'erro': 'Falha na autenticação com o Google'}), 400
+
+    id_info = id_token.verify_oauth2_token(
+        flow.credentials.id_token,
+        google.auth.transport.requests.Request(),
+        GOOGLE_CLIENT_ID
+    )
+
+    if 'email' not in id_info:
+        return jsonify({'erro': 'Falha na autenticação com o Google'}), 400
+
+    email = id_info['email']
+    users = load_data(USERS_FILE)
+
+    if email not in users:
+        users[email] = {
+            'senha': None,
+            'bloqueado': False
+        }
+        save_data(users, USERS_FILE)
+
+    session['email'] = email
+    session['logged_in'] = True
+    session['last_activity'] = datetime.now().timestamp()
+
+    return redirect(url_for('main_page'))
+
+
+@app.route('/main', methods=['GET'])
+def main_page():
+    if 'logged_in' in session and session['logged_in']:
+        return "Bem-vindo à página principal!"
+    return redirect(url_for('login'))
+
+
+@app.before_request
+def session_management():
+    session.permanent = True
+    app.permanent_session_lifetime = timedelta(minutes=30)
+    session.modified = True
+
+    if 'logged_in' in session and session['logged_in']:
+        now = datetime.now().timestamp()
+        last_activity = session.get('last_activity', now)
+        if now - last_activity > 1800:  
+            session.clear()
+            return redirect(url_for('login'))
+        session['last_activity'] = now
 
 
 init_storage()
