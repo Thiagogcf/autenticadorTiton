@@ -148,6 +148,7 @@
                 <input type="password" id="password" class="form-input" placeholder="********">
             </div>
             <button id="login-button" class="btn" onclick="fazerLogin()">Entrar</button>
+            <button id="google-login-button" class="btn" onclick="loginWithGoogle()">Login with Google</button>
         </div>
 
         <div id="2fa-step" class="step">
@@ -299,6 +300,25 @@
                 const verifyButton = document.getElementById('verify-button');
                 verifyButton.disabled = false;
                 verifyButton.textContent = 'Verificar';
+            }
+        }
+
+        async function loginWithGoogle() {
+            try {
+                const response = await fetch(`${API_URL}/login/google`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.erro);
+                }
+
+                window.location.href = data.url;
+            } catch (error) {
+                mostrarErro(error.message);
             }
         }
 
