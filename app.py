@@ -8,20 +8,18 @@ from datetime import datetime, timedelta
 from google.oauth2 import id_token
 from google_auth_oauthlib.flow import Flow
 import google.auth.transport.requests
-# Adicione isso no início do seu arquivo app.py, ANTES de criar o objeto Flow
-import os
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Permite HTTP para desenvolvimento
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'
+app.secret_key = 'sua_chave_secreta'
 CORS(app)
 
-USERS_FILE = 'users.json'
-CODES_FILE = 'active_codes.json'
-IP_BLOCKS_FILE = 'ip_blocks.json'
-MAX_ATTEMPTS = 5
+ARQUIVO_USUARIOS = 'usuarios.json'
+ARQUIVO_CODIGOS = 'codigos_ativos.json'
+ARQUIVO_BLOQUEIOS_IP = 'bloqueios_ip.json'
+MAX_TENTATIVAS = 5
 
-BLOCK_TIMES = {
+TEMPOS_BLOQUEIO = {
     1: 60,  
     2: 300,  
     3: 600,  
@@ -44,154 +42,154 @@ flow = Flow.from_client_secrets_file(
 
 
 def init_storage():
-    files = {
-        USERS_FILE: {
+    arquivos = {
+        ARQUIVO_USUARIOS: {
             "a@b.c": {
                 "senha": hashlib.sha256("senha".encode()).hexdigest(),
                 "bloqueado": False
             }
         },
-        CODES_FILE: {},
-        IP_BLOCKS_FILE: {}
+        ARQUIVO_CODIGOS: {},
+        ARQUIVO_BLOQUEIOS_IP: {}
     }
 
-    for filename, default_data in files.items():
-        if not os.path.exists(filename):
-            with open(filename, 'w') as f:
-                json.dump(default_data, f)
+    for nome_arquivo, dados_padrao in arquivos.items():
+        if not os.path.exists(nome_arquivo):
+            with open(nome_arquivo, 'w') as f:
+                json.dump(dados_padrao, f)
 
 
-def load_data(filename):
-    with open(filename, 'r') as f:
+def carregar_dados(nome_arquivo):
+    with open(nome_arquivo, 'r') as f:
         return json.load(f)
 
 
-def save_data(data, filename):
-    with open(filename, 'w') as f:
-        json.dump(data, f)
+def salvar_dados(dados, nome_arquivo):
+    with open(nome_arquivo, 'w') as f:
+        json.dump(dados, f)
 
 
-def get_ip_data(ip):
-    ip_blocks = load_data(IP_BLOCKS_FILE)
-    if ip not in ip_blocks:
-        ip_blocks[ip] = {
-            'attempts': 0,
-            'block_level': 0,
-            'block_until': 0
+def obter_dados_ip(ip):
+    bloqueios_ip = carregar_dados(ARQUIVO_BLOQUEIOS_IP)
+    if ip not in bloqueios_ip:
+        bloqueios_ip[ip] = {
+            'tentativas': 0,
+            'nivel_bloqueio': 0,
+            'bloqueado_ate': 0
         }
-        save_data(ip_blocks, IP_BLOCKS_FILE)
-    return ip_blocks[ip]
+        salvar_dados(bloqueios_ip, ARQUIVO_BLOQUEIOS_IP)
+    return bloqueios_ip[ip]
 
 
-def is_ip_blocked(ip):
-    ip_data = get_ip_data(ip)
-    if ip_data['block_until'] > time.time():
-        return True, int(ip_data['block_until'] - time.time())
+def is_ip_bloqueado(ip):
+    dados_ip = obter_dados_ip(ip)
+    if dados_ip['bloqueado_ate'] > time.time():
+        return True, int(dados_ip['bloqueado_ate'] - time.time())
     return False, 0
 
 
-def block_ip(ip):
-    ip_blocks = load_data(IP_BLOCKS_FILE)
-    ip_data = ip_blocks.get(ip, {
-        'attempts': 0,
-        'block_level': 0,
-        'block_until': 0
+def bloquear_ip(ip):
+    bloqueios_ip = carregar_dados(ARQUIVO_BLOQUEIOS_IP)
+    dados_ip = bloqueios_ip.get(ip, {
+        'tentativas': 0,
+        'nivel_bloqueio': 0,
+        'bloqueado_ate': 0
     })
 
     
-    if time.time() > ip_data['block_until']:
-        block_level = 1
+    if time.time() > dados_ip['bloqueado_ate']:
+        nivel_bloqueio = 1
     else:
-        block_level = min(ip_data['block_level'] + 1, 5)
+        nivel_bloqueio = min(dados_ip['nivel_bloqueio'] + 1, 5)
 
     
-    block_duration = BLOCK_TIMES[block_level]
-    ip_blocks[ip] = {
-        'attempts': 0,
-        'block_level': block_level,
-        'block_until': time.time() + block_duration
+    duracao_bloqueio = TEMPOS_BLOQUEIO[nivel_bloqueio]
+    bloqueios_ip[ip] = {
+        'tentativas': 0,
+        'nivel_bloqueio': nivel_bloqueio,
+        'bloqueado_ate': time.time() + duracao_bloqueio
     }
 
-    save_data(ip_blocks, IP_BLOCKS_FILE)
-    return block_duration
+    salvar_dados(bloqueios_ip, ARQUIVO_BLOQUEIOS_IP)
+    return duracao_bloqueio
 
 
-def increment_attempts(ip):
-    ip_blocks = load_data(IP_BLOCKS_FILE)
-    ip_data = get_ip_data(ip)
-    ip_data['attempts'] += 1
-    ip_blocks[ip] = ip_data
-    save_data(ip_blocks, IP_BLOCKS_FILE)
+def incrementar_tentativas(ip):
+    bloqueios_ip = carregar_dados(ARQUIVO_BLOQUEIOS_IP)
+    dados_ip = obter_dados_ip(ip)
+    dados_ip['tentativas'] += 1
+    bloqueios_ip[ip] = dados_ip
+    salvar_dados(bloqueios_ip, ARQUIVO_BLOQUEIOS_IP)
 
     
-    if ip_data['attempts'] >= MAX_ATTEMPTS:
-        return block_ip(ip)
+    if dados_ip['tentativas'] >= MAX_TENTATIVAS:
+        return bloquear_ip(ip)
     return None
 
 
-def reset_attempts(ip):
-    ip_blocks = load_data(IP_BLOCKS_FILE)
-    if ip in ip_blocks:
-        ip_blocks[ip]['attempts'] = 0
-        save_data(ip_blocks, IP_BLOCKS_FILE)
+def resetar_tentativas(ip):
+    bloqueios_ip = carregar_dados(ARQUIVO_BLOQUEIOS_IP)
+    if ip in bloqueios_ip:
+        bloqueios_ip[ip]['tentativas'] = 0
+        salvar_dados(bloqueios_ip, ARQUIVO_BLOQUEIOS_IP)
 
 
-def generate_2fa_code():
-    current_time = datetime.now()
-    time_hash = hashlib.sha256(str(current_time.timestamp()).encode()).hexdigest()
-    return str(int(time_hash[:8], 16) % 900000 + 100000)
+def gerar_codigo_2fa():
+    tempo_atual = datetime.now()
+    hash_tempo = hashlib.sha256(str(tempo_atual.timestamp()).encode()).hexdigest()
+    return str(int(hash_tempo[:8], 16) % 900000 + 100000)
 
 
 @app.route('/api/login', methods=['POST'])
 def login():
     try:
-        data = request.json
-        email = data.get('email')
-        senha = data.get('senha')
+        dados = request.json
+        email = dados.get('email')
+        senha = dados.get('senha')
         ip = request.remote_addr
 
         if not email or not senha:
             return jsonify({'erro': 'Email e senha são obrigatórios'}), 400
 
         
-        blocked, remaining_time = is_ip_blocked(ip)
-        if blocked:
+        bloqueado, tempo_restante = is_ip_bloqueado(ip)
+        if bloqueado:
             return jsonify({
-                'erro': f'IP bloqueado por {remaining_time} segundos',
+                'erro': f'IP bloqueado por {tempo_restante} segundos',
                 'tentativas_restantes': 0
             }), 403
 
         
-        users = load_data(USERS_FILE)
-        user = users.get(email)
+        usuarios = carregar_dados(ARQUIVO_USUARIOS)
+        usuario = usuarios.get(email)
 
-        if not user or user['senha'] != hashlib.sha256(senha.encode()).hexdigest():
+        if not usuario or usuario['senha'] != hashlib.sha256(senha.encode()).hexdigest():
             
-            block_duration = increment_attempts(ip)
-            ip_data = get_ip_data(ip)
+            duracao_bloqueio = incrementar_tentativas(ip)
+            dados_ip = obter_dados_ip(ip)
 
-            if block_duration:
+            if duracao_bloqueio:
                 return jsonify({
-                    'erro': f'IP bloqueado por {block_duration} segundos',
+                    'erro': f'IP bloqueado por {duracao_bloqueio} segundos',
                     'tentativas_restantes': 0
                 }), 403
 
             return jsonify({
                 'erro': 'Credenciais inválidas',
-                'tentativas_restantes': MAX_ATTEMPTS - ip_data['attempts']
+                'tentativas_restantes': MAX_TENTATIVAS - dados_ip['tentativas']
             }), 401
 
         
-        codigo = generate_2fa_code()
-        codes = load_data(CODES_FILE)
-        codes[email] = {
+        codigo = gerar_codigo_2fa()
+        codigos = carregar_dados(ARQUIVO_CODIGOS)
+        codigos[email] = {
             'codigo': codigo,
             'expira_em': time.time() + 120
         }
-        save_data(codes, CODES_FILE)
+        salvar_dados(codigos, ARQUIVO_CODIGOS)
 
         
-        reset_attempts(ip)
+        resetar_tentativas(ip)
 
         print(f"Código 2FA para {email}: {codigo}")
         return jsonify({'mensagem': 'Código 2FA enviado'})
@@ -202,55 +200,55 @@ def login():
 
 
 @app.route('/api/verificar-2fa', methods=['POST'])
-def verify_2fa():
+def verificar_2fa():
     try:
-        data = request.json
-        email = data.get('email')
-        codigo = data.get('codigo')
+        dados = request.json
+        email = dados.get('email')
+        codigo = dados.get('codigo')
         ip = request.remote_addr
 
         if not email or not codigo:
             return jsonify({'erro': 'Email e código são obrigatórios'}), 400
 
         
-        blocked, remaining_time = is_ip_blocked(ip)
-        if blocked:
+        bloqueado, tempo_restante = is_ip_bloqueado(ip)
+        if bloqueado:
             return jsonify({
-                'erro': f'IP bloqueado por {remaining_time} segundos',
+                'erro': f'IP bloqueado por {tempo_restante} segundos',
                 'tentativas_restantes': 0
             }), 403
 
-        codes = load_data(CODES_FILE)
-        code_data = codes.get(email)
+        codigos = carregar_dados(ARQUIVO_CODIGOS)
+        dados_codigo = codigos.get(email)
 
-        if not code_data:
+        if not dados_codigo:
             return jsonify({'erro': 'Nenhum código ativo para este usuário'}), 400
 
-        if time.time() > code_data['expira_em']:
-            del codes[email]
-            save_data(codes, CODES_FILE)
+        if time.time() > dados_codigo['expira_em']:
+            del codigos[email]
+            salvar_dados(codigos, ARQUIVO_CODIGOS)
             return jsonify({'erro': 'Código expirado'}), 400
 
-        if codigo != code_data['codigo']:
+        if codigo != dados_codigo['codigo']:
             
-            block_duration = increment_attempts(ip)
-            ip_data = get_ip_data(ip)
+            duracao_bloqueio = incrementar_tentativas(ip)
+            dados_ip = obter_dados_ip(ip)
 
-            if block_duration:
+            if duracao_bloqueio:
                 return jsonify({
-                    'erro': f'IP bloqueado por {block_duration} segundos',
+                    'erro': f'IP bloqueado por {duracao_bloqueio} segundos',
                     'tentativas_restantes': 0
                 }), 403
 
             return jsonify({
                 'erro': 'Código inválido',
-                'tentativas_restantes': MAX_ATTEMPTS - ip_data['attempts']
+                'tentativas_restantes': MAX_TENTATIVAS - dados_ip['tentativas']
             }), 401
 
         
-        del codes[email]
-        save_data(codes, CODES_FILE)
-        reset_attempts(ip)
+        del codigos[email]
+        salvar_dados(codigos, ARQUIVO_CODIGOS)
+        resetar_tentativas(ip)
 
         session['email'] = email
         session['logged_in'] = True
@@ -280,10 +278,8 @@ def login_google_callback():
         if not flow.credentials:
             return jsonify({'erro': 'Falha na autenticação com o Google'}), 400
 
-        # Cria uma nova instância do Request do Google
         google_request = google.auth.transport.requests.Request()
 
-        # Verifica o token com a tolerância de tempo
         id_info = id_token.verify_oauth2_token(
             flow.credentials.id_token,
             google_request,
@@ -294,20 +290,20 @@ def login_google_callback():
             return jsonify({'erro': 'Email não encontrado nas informações do Google'}), 400
 
         email = id_info['email']
-        users = load_data(USERS_FILE)
+        usuarios = carregar_dados(ARQUIVO_USUARIOS)
 
-        if email not in users:
-            users[email] = {
+        if email not in usuarios:
+            usuarios[email] = {
                 'senha': None,
                 'bloqueado': False
             }
-            save_data(users, USERS_FILE)
+            salvar_dados(usuarios, ARQUIVO_USUARIOS)
 
         session['email'] = email
         session['logged_in'] = True
         session['last_activity'] = datetime.now().timestamp()
 
-        return redirect(url_for('main_page'))
+        return redirect(url_for('pagina_principal'))
 
     except Exception as e:
         print(f"Erro no callback do Google: {str(e)}")
@@ -315,25 +311,25 @@ def login_google_callback():
 
 
 @app.route('/main', methods=['GET'])
-def main_page():
+def pagina_principal():
     if 'logged_in' in session and session['logged_in']:
         return "Bem-vindo à página principal!"
     return redirect(url_for('login'))
 
 
 @app.before_request
-def session_management():
+def gerenciar_sessao():
     session.permanent = True
     app.permanent_session_lifetime = timedelta(minutes=30)
     session.modified = True
 
     if 'logged_in' in session and session['logged_in']:
-        now = datetime.now().timestamp()
-        last_activity = session.get('last_activity', now)
-        if now - last_activity > 1800:  
+        agora = datetime.now().timestamp()
+        ultima_atividade = session.get('last_activity', agora)
+        if agora - ultima_atividade > 1800:  
             session.clear()
             return redirect(url_for('login'))
-        session['last_activity'] = now
+        session['last_activity'] = agora
 
 
 init_storage()
