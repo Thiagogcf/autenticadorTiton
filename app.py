@@ -8,10 +8,10 @@ from datetime import datetime, timedelta
 from google.oauth2 import id_token
 from google_auth_oauthlib.flow import Flow
 import google.auth.transport.requests
+# Adicione isso no início do seu arquivo app.py, ANTES de criar o objeto Flow
+import os
 
-from google.auth.transport import requests
-from google.oauth2 import id_token
-
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Permite HTTP para desenvolvimento
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 CORS(app)
@@ -28,67 +28,17 @@ BLOCK_TIMES = {
     4: 3600,  
     5: 86400  
 }
-GOOGLE_CLIENT_ID = "979457718382-qec3da090pvcelorfpecnt72qhbulg80.apps.googleusercontent.com"
 
-
-# Previous helper functions remain unchanged
-
-@app.route('/api/google-login', methods=['POST'])
-def google_login():
-    try:
-        # Get the token from the request
-        token = request.json.get('credential')
-
-        if not token:
-            return jsonify({'erro': 'Token não fornecido'}), 400
-
-        # Verify the token
-        idinfo = id_token.verify_oauth2_token(
-            token,
-            requests.Request(),
-            GOOGLE_CLIENT_ID
-        )
-
-        # Get user info from the token
-        email = idinfo['email']
-
-        # Check if email is verified by Google
-        if not idinfo.get('email_verified'):
-            return jsonify({'erro': 'Email não verificado pelo Google'}), 400
-
-        # Load existing users
-        users = load_data(USERS_FILE)
-
-        # If user doesn't exist, create them
-        if email not in users:
-            users[email] = {
-                "senha": None,  # No password for Google users
-                "bloqueado": False,
-                "google_user": True
-            }
-            save_data(users, USERS_FILE)
-
-        return jsonify({
-            'mensagem': 'Login com Google realizado com sucesso',
-            'token': 'jwt-token-simulado',
-            'email': email
-        })
-
-    except ValueError as e:
-        # Invalid token
-        return jsonify({'erro': 'Token inválido'}), 401
-    except Exception as e:
-        print(f"Erro no login com Google: {str(e)}")
-        return jsonify({'erro': 'Erro interno do servidor'}), 500
-
-GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID"  # Change this with your Google API client ID
-GOOGLE_CLIENT_SECRET = "YOUR_GOOGLE_CLIENT_SECRET"  # Change this with your Google API client secret
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 GOOGLE_REDIRECT_URI = "http://127.0.0.1:5000/api/login/google/callback"
 
 flow = Flow.from_client_secrets_file(
     'client_secret.json',
-    scopes=['https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email'],
+    scopes=[
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'openid'
+    ],
     redirect_uri=GOOGLE_REDIRECT_URI
 )
 
@@ -324,35 +274,44 @@ def login_google():
 
 @app.route('/api/login/google/callback', methods=['GET'])
 def login_google_callback():
-    flow.fetch_token(authorization_response=request.url)
+    try:
+        flow.fetch_token(authorization_response=request.url)
 
-    if not flow.credentials:
-        return jsonify({'erro': 'Falha na autenticação com o Google'}), 400
+        if not flow.credentials:
+            return jsonify({'erro': 'Falha na autenticação com o Google'}), 400
 
-    id_info = id_token.verify_oauth2_token(
-        flow.credentials.id_token,
-        google.auth.transport.requests.Request(),
-        GOOGLE_CLIENT_ID
-    )
+        # Cria uma nova instância do Request do Google
+        google_request = google.auth.transport.requests.Request()
 
-    if 'email' not in id_info:
-        return jsonify({'erro': 'Falha na autenticação com o Google'}), 400
+        # Verifica o token com a tolerância de tempo
+        id_info = id_token.verify_oauth2_token(
+            flow.credentials.id_token,
+            google_request,
+            clock_skew_in_seconds=10
+        )
 
-    email = id_info['email']
-    users = load_data(USERS_FILE)
+        if 'email' not in id_info:
+            return jsonify({'erro': 'Email não encontrado nas informações do Google'}), 400
 
-    if email not in users:
-        users[email] = {
-            'senha': None,
-            'bloqueado': False
-        }
-        save_data(users, USERS_FILE)
+        email = id_info['email']
+        users = load_data(USERS_FILE)
 
-    session['email'] = email
-    session['logged_in'] = True
-    session['last_activity'] = datetime.now().timestamp()
+        if email not in users:
+            users[email] = {
+                'senha': None,
+                'bloqueado': False
+            }
+            save_data(users, USERS_FILE)
 
-    return redirect(url_for('main_page'))
+        session['email'] = email
+        session['logged_in'] = True
+        session['last_activity'] = datetime.now().timestamp()
+
+        return redirect(url_for('main_page'))
+
+    except Exception as e:
+        print(f"Erro no callback do Google: {str(e)}")
+        return jsonify({'erro': 'Falha na autenticação com o Google', 'detalhes': str(e)}), 400
 
 
 @app.route('/main', methods=['GET'])
