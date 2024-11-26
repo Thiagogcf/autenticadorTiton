@@ -143,6 +143,8 @@ def gerar_codigo_2fa():
 @app.route('/api/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'GET':
+        if 'logged_in' in session and session['logged_in']:
+            return redirect(url_for('pagina_principal'))
         return render_template('login.html')
 
     try:
