@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Página Principal</title>
+    <title>500 - Internal Server Error</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -22,12 +22,12 @@
             padding: 2rem;
             text-align: center;
         }
-        .welcome-message {
+        .error-message {
             font-size: 1.5rem;
             color: #1f2937;
             margin-bottom: 1rem;
         }
-        .logout-button {
+        .home-link {
             padding: 0.75rem 1.5rem;
             background-color: #2563eb;
             color: white;
@@ -35,23 +35,18 @@
             border-radius: 4px;
             font-size: 1rem;
             cursor: pointer;
+            text-decoration: none;
             transition: background-color 0.2s;
         }
-        .logout-button:hover {
+        .home-link:hover {
             background-color: #1d4ed8;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="welcome-message">Bem-vindo à Página Principal!</div>
-        <button class="logout-button" onclick="logout()">Sair</button>
+        <div class="error-message">500 - Internal Server Error</div>
+        <a href="login.html" class="home-link">Go to Login Page</a>
     </div>
-
-    <script>
-        function logout() {
-            window.location.href = 'logout';
-        }
-    </script>
 </body>
 </html>
