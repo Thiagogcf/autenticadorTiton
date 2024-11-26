@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, redirect, url_for, session
+from flask import Flask, request, jsonify, redirect, url_for, session, render_template
 from flask_cors import CORS
 import json
 import hashlib
@@ -310,10 +310,16 @@ def login_google_callback():
         return jsonify({'erro': 'Falha na autenticação com o Google', 'detalhes': str(e)}), 400
 
 
-@app.route('/main', methods=['GET'])
+@app.route('/index', methods=['GET'])
 def pagina_principal():
     if 'logged_in' in session and session['logged_in']:
-        return "Bem-vindo à página principal!"
+        return render_template('index.html')
+    return redirect(url_for('login'))
+
+
+@app.route('/logout', methods=['GET'])
+def logout():
+    session.clear()
     return redirect(url_for('login'))
 
 
@@ -330,6 +336,23 @@ def gerenciar_sessao():
             session.clear()
             return redirect(url_for('login'))
         session['last_activity'] = agora
+
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
+
+
+@app.errorhandler(500)
+def internal_server_error(e):
+    return render_template('500.html'), 500
+
+
+@app.route('/')
+def root():
+    if 'logged_in' in session and session['logged_in']:
+        return redirect(url_for('pagina_principal'))
+    return redirect(url_for('login'))
 
 
 init_storage()
