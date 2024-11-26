@@ -140,8 +140,11 @@ def gerar_codigo_2fa():
     return str(int(hash_tempo[:8], 16) % 900000 + 100000)
 
 
-@app.route('/api/login', methods=['POST'])
+@app.route('/api/login', methods=['GET', 'POST'])
 def login():
+    if request.method == 'GET':
+        return render_template('login.html')
+
     try:
         dados = request.json
         email = dados.get('email')
