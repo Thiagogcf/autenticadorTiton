@@ -9,7 +9,7 @@ from google.oauth2 import id_token
 from google_auth_oauthlib.flow import Flow
 import google.auth.transport.requests
 
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Permite HTTP para desenvolvimento
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta'
 CORS(app)
@@ -20,11 +20,11 @@ ARQUIVO_BLOQUEIOS_IP = 'bloqueios_ip.json'
 MAX_TENTATIVAS = 5
 
 TEMPOS_BLOQUEIO = {
-    1: 60,  
-    2: 300,  
-    3: 600,  
-    4: 3600,  
-    5: 86400  
+    1: 2,
+    2: 5,
+    3: 8,
+    4: 9,
+    5: 10
 }
 
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
@@ -75,7 +75,8 @@ def obter_dados_ip(ip):
         bloqueios_ip[ip] = {
             'tentativas': 0,
             'nivel_bloqueio': 0,
-            'bloqueado_ate': 0
+            'bloqueado_ate': 0,
+            'ultimo_bloqueio': 0
         }
         salvar_dados(bloqueios_ip, ARQUIVO_BLOQUEIOS_IP)
     return bloqueios_ip[ip]
@@ -83,8 +84,9 @@ def obter_dados_ip(ip):
 
 def is_ip_bloqueado(ip):
     dados_ip = obter_dados_ip(ip)
-    if dados_ip['bloqueado_ate'] > time.time():
-        return True, int(dados_ip['bloqueado_ate'] - time.time())
+    current_time = time.time()
+    if dados_ip['bloqueado_ate'] > current_time:
+        return True, int(dados_ip['bloqueado_ate'] - current_time)
     return False, 0
 
 
@@ -96,18 +98,23 @@ def bloquear_ip(ip):
         'bloqueado_ate': 0
     })
 
-    
-    if time.time() > dados_ip['bloqueado_ate']:
-        nivel_bloqueio = 1
-    else:
+    current_time = time.time()
+
+    if current_time <= dados_ip['bloqueado_ate']:
         nivel_bloqueio = min(dados_ip['nivel_bloqueio'] + 1, 5)
 
-    
+    elif dados_ip['nivel_bloqueio'] > 0:
+        nivel_bloqueio = min(dados_ip['nivel_bloqueio'] + 1, 5)
+
+    else:
+        nivel_bloqueio = 1
+
     duracao_bloqueio = TEMPOS_BLOQUEIO[nivel_bloqueio]
+
     bloqueios_ip[ip] = {
         'tentativas': 0,
         'nivel_bloqueio': nivel_bloqueio,
-        'bloqueado_ate': time.time() + duracao_bloqueio
+        'bloqueado_ate': current_time + duracao_bloqueio
     }
 
     salvar_dados(bloqueios_ip, ARQUIVO_BLOQUEIOS_IP)
@@ -121,7 +128,6 @@ def incrementar_tentativas(ip):
     bloqueios_ip[ip] = dados_ip
     salvar_dados(bloqueios_ip, ARQUIVO_BLOQUEIOS_IP)
 
-    
     if dados_ip['tentativas'] >= MAX_TENTATIVAS:
         return bloquear_ip(ip)
     return None
@@ -130,7 +136,11 @@ def incrementar_tentativas(ip):
 def resetar_tentativas(ip):
     bloqueios_ip = carregar_dados(ARQUIVO_BLOQUEIOS_IP)
     if ip in bloqueios_ip:
-        bloqueios_ip[ip]['tentativas'] = 0
+        bloqueios_ip[ip] = {
+            'tentativas': 0,
+            'nivel_bloqueio': 0,
+            'bloqueado_ate': 0
+        }
         salvar_dados(bloqueios_ip, ARQUIVO_BLOQUEIOS_IP)
 
 
@@ -156,7 +166,6 @@ def login():
         if not email or not senha:
             return jsonify({'erro': 'Email e senha são obrigatórios'}), 400
 
-        
         bloqueado, tempo_restante = is_ip_bloqueado(ip)
         if bloqueado:
             return jsonify({
@@ -164,12 +173,11 @@ def login():
                 'tentativas_restantes': 0
             }), 403
 
-        
         usuarios = carregar_dados(ARQUIVO_USUARIOS)
         usuario = usuarios.get(email)
 
         if not usuario or usuario['senha'] != hashlib.sha256(senha.encode()).hexdigest():
-            
+
             duracao_bloqueio = incrementar_tentativas(ip)
             dados_ip = obter_dados_ip(ip)
 
@@ -184,7 +192,6 @@ def login():
                 'tentativas_restantes': MAX_TENTATIVAS - dados_ip['tentativas']
             }), 401
 
-        
         codigo = gerar_codigo_2fa()
         codigos = carregar_dados(ARQUIVO_CODIGOS)
         codigos[email] = {
@@ -193,7 +200,6 @@ def login():
         }
         salvar_dados(codigos, ARQUIVO_CODIGOS)
 
-        
         resetar_tentativas(ip)
 
         print(f"Código 2FA para {email}: {codigo}")
@@ -215,7 +221,6 @@ def verificar_2fa():
         if not email or not codigo:
             return jsonify({'erro': 'Email e código são obrigatórios'}), 400
 
-        
         bloqueado, tempo_restante = is_ip_bloqueado(ip)
         if bloqueado:
             return jsonify({
@@ -235,7 +240,7 @@ def verificar_2fa():
             return jsonify({'erro': 'Código expirado'}), 400
 
         if codigo != dados_codigo['codigo']:
-            
+
             duracao_bloqueio = incrementar_tentativas(ip)
             dados_ip = obter_dados_ip(ip)
 
@@ -250,7 +255,6 @@ def verificar_2fa():
                 'tentativas_restantes': MAX_TENTATIVAS - dados_ip['tentativas']
             }), 401
 
-        
         del codigos[email]
         salvar_dados(codigos, ARQUIVO_CODIGOS)
         resetar_tentativas(ip)
@@ -337,7 +341,7 @@ def gerenciar_sessao():
     if 'logged_in' in session and session['logged_in']:
         agora = datetime.now().timestamp()
         ultima_atividade = session.get('last_activity', agora)
-        if agora - ultima_atividade > 1800:  
+        if agora - ultima_atividade > 1800:
             session.clear()
             return redirect(url_for('login'))
         session['last_activity'] = agora
